@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xdg-google-docs"
+version = "0.1.0"
+description = "Open local office documents in Google Docs, Sheets and Slides from Linux"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{name = "Filip Kalny"}]
+dependencies = [
+  "google-api-python-client>=2.160,<3",
+  "google-auth-oauthlib>=1.2.2,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "build>=1,<2"]
+
+[project.scripts]
+xdg-google-docs = "xdg_google_docs.cli:main"
+
+[project.urls]
+Repository = "https://github.com/totalolage/xdg-google-docs"
+Issues = "https://github.com/totalolage/xdg-google-docs/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -3,6 +3,7 @@
 import configparser
 import io
 import os
+import re
 import subprocess
 import warnings
 from pathlib import Path
@@ -114,10 +115,13 @@ def _entry(executable, mimes):
     # Exec quoting is decoded AFTER desktop string escapes, BEFORE field codes.
     quoted = "".join("\\" + char if char in '\\"`$' else char for char in executable)
     quoted = quoted.replace("\\", "\\\\").replace("%", "%%")
+    # xdg-utils' generic launcher does not parse quotes around argv[0].
+    # Avoid unnecessary quoting for safe paths; retain spec quoting otherwise.
+    command = executable if re.fullmatch(r"[A-Za-z0-9_./+\-]+", executable) else f'"{quoted}"'
     return (
         "[Desktop Entry]\nType=Application\nName=Google Docs\n"
         "Comment=Open office documents in Google Docs, Sheets and Slides\n"
-        f'Exec="{quoted}" open --desktop -- %F\n'
+        f"Exec={command} open --desktop -- %F\n"
         "Terminal=false\nNoDisplay=true\nCategories=Office;\n"
         f"MimeType={';'.join(mimes)};\n"
     )

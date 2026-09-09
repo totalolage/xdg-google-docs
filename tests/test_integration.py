@@ -13,7 +13,13 @@ import pytest
 @pytest.fixture
 def environment(tmp_path):
     env = dict(os.environ)
-    for name in ("APPIMAGE", "APPDIR", "LD_LIBRARY_PATH"):
+    for name in (
+        "APPIMAGE",
+        "APPDIR",
+        "LD_LIBRARY_PATH",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "WAYLAND_DISPLAY",
+    ):
         env.pop(name, None)
     for name in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
         path = tmp_path / name
@@ -21,6 +27,7 @@ def environment(tmp_path):
         env[name] = str(path)
     env["XDG_CURRENT_DESKTOP"] = "X-Generic"
     env["DE"] = "generic"
+    env["DISPLAY"] = ":99"
     env["PATH"] = f"{Path(sys.executable).parent}:{env['PATH']}"
     return env
 
@@ -85,6 +92,17 @@ def test_real_desktop_install_uninstall_does_not_deadlock(environment):
         timeout=10,
     ).stdout.strip()
     assert rtf_handler == "xdg-google-docs.desktop"
+    if shutil.which("xdg-open"):
+        launched = subprocess.run(
+            ["xdg-open", str(rtf)],
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        assert "Not authenticated" in launched.stderr
+        error = Path(environment["XDG_STATE_HOME"]) / "xdg-google-docs/last-error.json"
+        assert "Not authenticated" in json.loads(error.read_text())["message"]
     metadata = Path(environment["XDG_STATE_HOME"]) / "xdg-google-docs/desktop.json"
     original = json.loads(metadata.read_text())
     run(environment, "install")

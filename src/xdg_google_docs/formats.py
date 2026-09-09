@@ -20,4 +20,5 @@ FORMATS = {
 }
 
 # CSV stays in its existing editor unless explicitly requested at installation.
-MIME_TYPES = sorted({mime for ext, (mime, _) in FORMATS.items() if ext != ".csv"})
+# Generic xdg-open uses file(1), which can return this shared-mime-info alias.
+MIME_TYPES = sorted({mime for ext, (mime, _) in FORMATS.items() if ext != ".csv"} | {"text/rtf"})

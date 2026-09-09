@@ -65,6 +65,26 @@ def test_real_desktop_install_uninstall_does_not_deadlock(environment):
         timeout=10,
     )
     assert query.stdout.strip() == "xdg-google-docs.desktop"
+    rtf = Path(environment["XDG_STATE_HOME"]) / "synthetic.rtf"
+    rtf.write_text(r"{\rtf1\ansi Synthetic document.}")
+    detected = subprocess.run(
+        ["xdg-mime", "query", "filetype", str(rtf)],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    ).stdout.strip()
+    assert detected in {"application/rtf", "text/rtf"}
+    rtf_handler = subprocess.run(
+        ["xdg-mime", "query", "default", detected],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    ).stdout.strip()
+    assert rtf_handler == "xdg-google-docs.desktop"
     metadata = Path(environment["XDG_STATE_HOME"]) / "xdg-google-docs/desktop.json"
     original = json.loads(metadata.read_text())
     run(environment, "install")

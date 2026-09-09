@@ -7,6 +7,7 @@ Open local office documents in Google Docs, Sheets, and Slides from Linux, from 
 Repository: [totalolage/xdg-google-docs](https://github.com/totalolage/xdg-google-docs). Licensed under [MIT](LICENSE).
 
 [Privacy Policy](PRIVACY.md) describes Google API data access, use, storage, sharing, and deletion.
+[Terms of Service](TERMS.md) describe user responsibilities, third-party services, and warranty limitations.
 
 ## Install
 

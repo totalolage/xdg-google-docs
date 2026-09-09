@@ -11,7 +11,7 @@ Repository: [totalolage/xdg-google-docs](https://github.com/totalolage/xdg-googl
 
 ## Install
 
-Requires Python 3.11 or newer, Linux, and a browser. Desktop integration needs `xdg-mime` and browser launching needs `xdg-open` (usually provided by `xdg-utils`). `update-desktop-database` and `notify-send` are optional.
+Requires Python 3.11 or newer, Linux, and a browser. Desktop integration needs `xdg-mime` and browser launching needs `xdg-open` (usually provided by `xdg-utils`). Default-handler installation also needs `update-mime-database` (from `shared-mime-info`) for document icons. `update-desktop-database`, `gtk-update-icon-cache`, and `notify-send` are optional; `update-desktop-database` is recommended for Open With discovery.
 
 ```sh
 git clone https://github.com/totalolage/xdg-google-docs.git
@@ -109,7 +109,11 @@ This adds a per-user **Google Docs** Open With entry without replacing MIME defa
 xdg-google-docs install
 ```
 
-**Double-clicking an associated file now uploads/reopens a cloud copy.** CSV associations are opt-in with `install --include-csv`; CSV remains available through the CLI regardless. Generic text and ZIP associations are not claimed.
+**Double-clicking an associated file now uploads/reopens a cloud copy.** CSV is always advertised in Open With, but changing its default handler and document icon requires `install --include-csv`. Your existing CSV default remains unchanged otherwise. Generic text and ZIP associations are not claimed.
+
+Installation includes original blue document, green spreadsheet, and amber presentation SVG icons. The launcher has an app icon, and default-handler installation adds per-user MIME icon mappings for the associated formats. These mappings apply to all files of those types, not just uploaded files. `install --no-defaults` installs the app icons without adding file-type icon mappings. The artwork is distributed under the project's MIT license and is not an official Google logo.
+
+Icons are installed in `${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/mimetypes/` and mappings in `mime/packages/xdg-google-docs.xml` beneath the same data root. System theme files and unrelated MIME definitions are not replaced. Re-run `install` after upgrading to add new assets; original association backups are retained. Uninstall removes tracked icon assets and mappings and refreshes caches, but refuses to delete user-modified assets. File managers may need a refresh or reopening to see updated icons; thumbnails and per-file custom icons can take precedence.
 
 The entry is stored at `${XDG_DATA_HOME:-$HOME/.local/share}/applications/xdg-google-docs.desktop`. Installation records previous per-user associations and retains the original backups across reinstalls.
 

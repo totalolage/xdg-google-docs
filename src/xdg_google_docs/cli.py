@@ -14,7 +14,7 @@ import httplib2
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from . import auth, desktop
+from . import auth, desktop, vault
 from .drive import open_document
 from .storage import config_dir, locked, read_json, state_dir, write_json
 
@@ -47,7 +47,7 @@ def parser():
         "--no-browser", action="store_true", help="Print URL instead of launching browser"
     )
     commands.add_parser(
-        "logout", help="Delete local tokens (does not delete documents or revoke grant)"
+        "logout", help="Remove tokens from the system keyring (does not revoke Google's grant)"
     )
     status = commands.add_parser("status", help="Show local setup; optionally verify Google access")
     status.add_argument("--check", action="store_true")
@@ -99,17 +99,19 @@ def main(argv=None):
                 auth.login(args.client, args.no_browser)
                 print("Authenticated. You can now open documents.")
             elif args.command == "logout":
-                (config_dir() / "token.json").unlink(missing_ok=True)
+                saved = vault.credentials()
+                saved.pop("token", None)
+                vault.credentials(saved)
                 print(
-                    "Local token deleted. Revoke the app in your Google Account to remove its grant."
+                    "Token removed from the system keyring. Revoke the app in your Google Account to remove its grant."
                 )
             elif args.command == "status":
                 print(f"Config: {config_dir()}\nState: {state_dir()}")
                 print(
                     "Token: "
                     + (
-                        "present (not verified)"
-                        if (config_dir() / "token.json").exists()
+                        "present in system keyring (not verified)"
+                        if vault.credentials().get("token")
                         else "missing"
                     )
                 )

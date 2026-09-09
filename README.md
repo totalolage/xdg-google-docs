@@ -11,7 +11,7 @@ Repository: [totalolage/xdg-google-docs](https://github.com/totalolage/xdg-googl
 
 ## Install
 
-Requires Python 3.11 or newer, Linux, and a browser. Desktop integration needs `xdg-mime` and browser launching needs `xdg-open` (usually provided by `xdg-utils`). Default-handler installation also needs `update-mime-database` (from `shared-mime-info`) for document icons. `update-desktop-database`, `gtk-update-icon-cache`, and `notify-send` are optional; `update-desktop-database` is recommended for Open With discovery.
+Requires Python 3.11 or newer, Linux, a browser, a session D-Bus, and a Secret Service provider such as GNOME Keyring (already present on the target machine). The package installs its Python keyring dependencies; it does not introduce an app daemon. Desktop integration needs `xdg-mime` and browser launching needs `xdg-open` (usually provided by `xdg-utils`). Default-handler installation also needs `update-mime-database` (from `shared-mime-info`) for document icons. `update-desktop-database`, `gtk-update-icon-cache`, and `notify-send` are optional; `update-desktop-database` is recommended for Open With discovery.
 
 ```sh
 git clone https://github.com/totalolage/xdg-google-docs.git
@@ -31,6 +31,8 @@ On desktops using the generic `xdg-open` fallback (including some window-manager
 For versioned downloads, use [GitHub Releases](https://github.com/totalolage/xdg-google-docs/releases). Each release includes a wheel, source archive, and `SHA256SUMS`. Releases are published automatically after a new package version merges to `main` and CI passes. Merges retaining an already released version produce CI build artifacts, not a replacement release.
 
 To upgrade an existing virtual-environment installation, download the new wheel and checksum file, verify the wheel against its entry in `SHA256SUMS`, then run the environment's `python -m pip install --upgrade /path/to/downloaded.whl` followed by `xdg-google-docs install` to refresh desktop assets. Reuse `--include-csv` or `--no-defaults` if that is your chosen installation mode. Configuration and Google credentials remain outside the installed package.
+
+Version **0.2.0** moves app-owned OAuth credentials into the system Secret Service keyring. Users of **v0.1.0 must upgrade** to migrate; the older version does not perform this migration. The next `status`, `auth`, `open`, or `logout` migrates legacy credentials as described below, without requiring another Google authorization just for migration.
 
 ## Authorize Your Account
 
@@ -99,7 +101,7 @@ xdg-google-docs config convert
 - Changed local bytes produce a new identity and normally a new cloud copy, rather than updating the previous copy. If those bytes already have a matching app-created copy, that copy is reused.
 - Remote edits are preserved: reopening unchanged local bytes opens the existing, possibly edited cloud document. Nothing is downloaded or overwritten. `--new` deliberately creates another copy and makes it the local index's current match.
 - `drive.file` covers app-created files and files explicitly granted to an app. This app has no picker/import-existing flow: it cannot discover arbitrary existing manually uploaded files, even if their names or bytes match. Deduplication concerns this app's marked copies, not your whole Drive.
-- One local process lock serializes operations sharing the state directory. It is not a distributed lock. Other machines, separate state directories, Drive search-index lag, or an interrupted upload with an uncertain result can still produce duplicates. There is no exactly-once or global deduplication guarantee.
+- Local locks serialize operations sharing the configuration or state directory, including credential refresh and logout. They are not distributed locks. Other machines, independent profiles, Drive search-index lag, or an interrupted upload with an uncertain result can still produce duplicates. There is no exactly-once or global deduplication guarantee.
 
 ## Desktop Integration
 
@@ -133,19 +135,26 @@ Uninstall keeps credentials, settings, the document index, and cloud documents. 
 
 ## Local Data And Removal
 
-| Default location | Contents |
+| Storage location | Contents |
 | --- | --- |
-| `~/.config/xdg-google-docs/` | `client.json`, `token.json`, `settings.json` |
+| System Secret Service keyring | OAuth client configuration and access/refresh tokens in one bundle; service `xdg-google-docs`, account/profile key `oauth-SHA256(resolved app config directory)` |
+| `~/.config/xdg-google-docs/` | `settings.json`, `credentials.lock`; legacy `client.json` and `token.json` until migration |
 | `~/.local/state/xdg-google-docs/` | `documents.json`, `desktop.json`, `operation.lock`, optional `last-error.json` |
 
-`XDG_CONFIG_HOME` and `XDG_STATE_HOME` override the respective roots and must be absolute paths. App configuration/state directories use mode `0700`; newly written JSON files, including the **plaintext token**, use mode `0600`. There is **no keyring integration or encryption at rest**. These permissions do not protect against your own account, root, malware, or exposed backups.
+`XDG_CONFIG_HOME` and `XDG_STATE_HOME` override the respective roots and must be absolute paths. The keyring profile key uses the SHA-256 hash of the resolved app configuration directory: changing `XDG_CONFIG_HOME` to a different resolved directory looks up a different secret entry. Settings, the document cache/index, errors, and desktop association backups remain on the filesystem. App configuration/state directories use mode `0700`; newly written JSON files use mode `0600`.
+
+The app explicitly uses `keyring.backends.SecretService.Keyring`, with **no plaintext fallback**. The system may show a keyring-unlock dialog; the app has no custom keyring GUI. An inaccessible or locked keyring that cannot be unlocked causes an error. Encryption and access control depend on the OS keyring's settings; an empty-password keyring may lack encryption. This does not guarantee protection against same-user malware in an unlocked session.
+
+On the next `status`, `auth`, `open`, or `logout`, legacy app-owned `client.json` and `token.json` are migrated only after the whole bundle is stored and read back successfully for verification. Failed verification leaves legacy files untouched, with no filesystem fallback. If existing keyring credentials differ from legacy credentials, migration stops without deleting the legacy files. The original user-provided downloaded client JSON remains untouched. Unlinking migrated files is not secure erasure and does not remove downloads or backup copies.
 
 ```sh
 xdg-google-docs status
 xdg-google-docs logout
 ```
 
-`status` reports local setup without validating the token; `status --check` contacts Google. `logout` deletes the local token only. Revoke the app grant separately in your [Google Account connections](https://myaccount.google.com/connections). Cloud documents must be deleted in Drive if no longer wanted. After uninstalling, you may remove the app's configuration/state directories and virtual environment if you want to remove all local setup.
+`status` reports local setup without validating the token with Google, but accesses the keyring and can trigger migration; `status --check` contacts Google. `logout` removes the access/refresh token data from the keyring bundle while preserving the OAuth client configuration and cloud data. Revoke the app grant separately in your [Google Account connections](https://myaccount.google.com/connections). Cloud documents must be deleted in Drive if no longer wanted.
+
+Uninstall preserves keyring credentials. To remove the full credential entry, use the system **Passwords and Keys (Seahorse)** GUI to delete the matching `xdg-google-docs` profile entry; there is no app-specific GUI. After uninstalling, you may separately remove the app's configuration/state directories, virtual environment, original downloaded client JSON, and relevant backups. Deleting filesystem directories alone does not remove the keyring entry, and deletion is not a secure-erasure guarantee.
 
 ## Limitations And Validation
 

@@ -49,7 +49,13 @@ def write_json(path, value):
 
 @contextmanager
 def locked():
-    with open(state_dir() / "operation.lock", "a", opener=_private_open) as stream:
+    # Credential identity follows config, while the document cache follows state.
+    # Acquire both in this order to serialize refresh/logout across state roots.
+    with (
+        open(config_dir() / "credentials.lock", "a", opener=_private_open) as credentials,
+        open(state_dir() / "operation.lock", "a", opener=_private_open) as stream,
+    ):
+        fcntl.flock(credentials, fcntl.LOCK_EX)
         fcntl.flock(stream, fcntl.LOCK_EX)
         yield
 

@@ -7,11 +7,13 @@ from unittest.mock import Mock, patch
 import httplib2
 import pytest
 from googleapiclient.errors import HttpError
+from keyring.errors import KeyringLocked
 
-from xdg_google_docs import cli, storage
+from xdg_google_docs import cli, storage, vault
 
 URL = "https://docs.google.com/document/d/test/edit"
 REAL_DRIVE_SERVICE = cli.drive_service
+REAL_LOGIN = cli.auth.login
 
 
 @pytest.fixture(autouse=True)
@@ -89,15 +91,70 @@ def test_status_is_local_without_check(offline, capsys, present):
         storage.write_json(storage.config_dir() / "token.json", {"token": "secret"})
     assert cli.main(["status"]) == 0
     output = capsys.readouterr().out
-    assert ("present (not verified)" if present else "missing") in output
+    assert ("present in system keyring (not verified)" if present else "missing") in output
     assert "secret" not in output
     offline[0].assert_not_called()
+    assert not (storage.config_dir() / "token.json").exists()
+    assert vault.credentials() == ({"token": {"token": "secret"}} if present else {})
 
 
 def test_status_check_verifies_and_closes(offline, capsys):
     assert cli.main(["status", "--check"]) == 0
     assert "Google access verified: test@example.test" in capsys.readouterr().out
     offline[0].return_value[0].close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "args", [["status"], ["status", "--check"], ["logout"], ["open", "--desktop", "a.docx"]]
+)
+def test_locked_keyring_never_contacts_google(offline, fake_secret_service, capsys, args):
+    fake_secret_service.backend.get_password.side_effect = KeyringLocked("synthetic-secret")
+    with (
+        patch.object(cli, "drive_service", REAL_DRIVE_SERVICE),
+        patch.object(cli, "build") as build,
+        patch.object(cli.auth, "Request") as request,
+        patch.object(cli, "notify") as notify,
+    ):
+        assert cli.main(args) == 1
+        build.assert_not_called()
+        request.assert_not_called()
+    output = capsys.readouterr()
+    assert "Start or unlock" in output.err
+    assert "synthetic-secret" not in output.out + output.err
+    assert "Traceback" not in output.err
+    offline[1].assert_not_called()
+    offline[2].assert_not_called()
+    if "--desktop" in args:
+        message = storage.read_json(storage.state_dir() / "last-error.json")["message"]
+        assert "synthetic-secret" not in message
+        notify.assert_called_once_with(message)
+
+
+@pytest.mark.parametrize(
+    "bundle,args",
+    [
+        ({"token": "synthetic-secret"}, ["status", "--check"]),
+        ({"token": {"scopes": None, "token": "synthetic-secret"}}, ["status", "--check"]),
+        ({"client": {"installed": "synthetic-secret"}}, ["auth"]),
+    ],
+)
+def test_malformed_nested_credentials_fail_without_leaks_or_google(offline, capsys, bundle, args):
+    vault.credentials(bundle)
+    with (
+        patch.object(cli, "drive_service", REAL_DRIVE_SERVICE),
+        patch.object(cli.auth, "login", REAL_LOGIN),
+        patch.object(cli, "build") as build,
+        patch.object(cli.auth, "InstalledAppFlow") as flow,
+        patch.object(cli.auth, "Request") as request,
+    ):
+        assert cli.main(args) == 1
+        build.assert_not_called()
+        flow.from_client_config.assert_not_called()
+        request.assert_not_called()
+    output = capsys.readouterr()
+    assert "synthetic-secret" not in output.out + output.err
+    assert "Traceback" not in output.err
+    assert vault.credentials() == bundle
 
 
 def test_auth_dispatch_and_logout_preserve_other_state(offline):
@@ -109,7 +166,8 @@ def test_auth_dispatch_and_logout_preserve_other_state(offline):
     assert cli.main(["logout"]) == 0
     assert cli.main(["logout"]) == 0
     assert not (storage.config_dir() / "token.json").exists()
-    assert (storage.config_dir() / "client.json").exists()
+    assert not (storage.config_dir() / "client.json").exists()
+    assert vault.credentials() == {"client": {"installed": {}}}
     assert storage.read_json(storage.state_dir() / "documents.json") == {"key": "doc"}
 
 

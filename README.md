@@ -6,6 +6,8 @@ Open local office documents in Google Docs, Sheets, and Slides from Linux, from 
 
 Repository: [totalolage/xdg-google-docs](https://github.com/totalolage/xdg-google-docs). Licensed under [MIT](LICENSE).
 
+[Privacy Policy](PRIVACY.md) describes Google API data access, use, storage, sharing, and deletion.
+
 ## Install
 
 Requires Python 3.11 or newer, Linux, and a browser. Desktop integration needs `xdg-mime` and browser launching needs `xdg-open` (usually provided by `xdg-utils`). `update-desktop-database` and `notify-send` are optional.

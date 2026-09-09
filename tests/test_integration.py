@@ -50,12 +50,22 @@ def test_real_cli_missing_auth_is_actionable(environment):
     assert "auth --client" in result.stderr
 
 
-@pytest.mark.skipif(not shutil.which("xdg-mime"), reason="xdg-utils not installed")
+@pytest.mark.skipif(
+    not shutil.which("xdg-mime") or not shutil.which("update-mime-database"),
+    reason="xdg-utils and shared-mime-info required",
+)
 def test_real_desktop_install_uninstall_does_not_deadlock(environment):
     result = run(environment, "install")
     assert "installed" in result.stdout
     entry = Path(environment["XDG_DATA_HOME"]) / "applications/xdg-google-docs.desktop"
     assert entry.exists()
+    assert "Icon=xdg-google-docs-document\n" in entry.read_text()
+    assert "text/csv;" in entry.read_text()
+    data = Path(environment["XDG_DATA_HOME"])
+    icon_map = data / "mime/icons"
+    assert "xdg-google-docs-document" in icon_map.read_text()
+    assert "text/csv:" not in icon_map.read_text()
+    assert (data / "icons/hicolor/scalable/mimetypes/xdg-google-docs-document.svg").exists()
     if shutil.which("desktop-file-validate"):
         subprocess.run(["desktop-file-validate", str(entry)], check=True, timeout=10)
     query = subprocess.run(
@@ -110,6 +120,7 @@ def test_real_desktop_install_uninstall_does_not_deadlock(environment):
     run(environment, "uninstall")
     assert not entry.exists()
     assert not metadata.exists()
+    assert "xdg-google-docs-" not in icon_map.read_text()
     mimeapps = Path(environment["XDG_CONFIG_HOME"]) / "mimeapps.list"
     if mimeapps.exists():
         assert "xdg-google-docs.desktop" not in mimeapps.read_text()

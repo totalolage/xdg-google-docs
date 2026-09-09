@@ -1,5 +1,7 @@
 import shlex
 import subprocess
+from pathlib import Path
+from xml.etree import ElementTree
 
 import pytest
 
@@ -42,6 +44,7 @@ def environment(tmp_path, monkeypatch):
         return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
 
     monkeypatch.setattr(desktop.subprocess, "run", run)
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: f"/usr/bin/{name}")
     return executable, mimeapps, calls
 
 
@@ -214,7 +217,7 @@ def test_no_replacement_and_optional_database_tool(environment, monkeypatch):
     monkeypatch.setattr(desktop.subprocess, "run", missing)
     desktop.install(str(executable), replace_defaults=False)
     desktop.uninstall()
-    assert all(args[0] == "update-desktop-database" for args in calls)
+    assert all(args[0] in {"update-desktop-database", "gtk-update-icon-cache"} for args in calls)
 
 
 @pytest.mark.parametrize("name", ["relative", "/does/not/exist", "bad=name", "bad\nname"])
@@ -279,3 +282,132 @@ def test_non_executable_file_rejected(environment):
     with pytest.raises(ValueError):
         desktop.install(str(executable))
     assert calls == []
+
+
+def test_icons_are_packaged_registered_and_removed(environment):
+    executable, _, calls = environment
+    desktop.install(str(executable))
+    data = desktop._root("XDG_DATA_HOME", ".local/share")
+    entry = (data / "applications" / desktop.DESKTOP_ID).read_text()
+    assert "Icon=xdg-google-docs-document\n" in entry
+    assert "text/csv;" in entry
+    package = data / "mime/packages/xdg-google-docs.xml"
+    root = ElementTree.fromstring(package.read_text())
+    ns = {"m": "http://www.freedesktop.org/standards/shared-mime-info"}
+    mappings = {item.attrib["type"]: item.find("m:icon", ns).attrib["name"] for item in root}
+    assert mappings[formats.FORMATS[".docx"][0]] == "xdg-google-docs-document"
+    assert mappings[formats.FORMATS[".xlsx"][0]] == "xdg-google-docs-spreadsheet"
+    assert mappings[formats.FORMATS[".pptx"][0]] == "xdg-google-docs-presentation"
+    assert "text/csv" not in mappings
+    assert "text/rtf" not in mappings  # Canonical application/rtf covers its alias.
+    for item in root:
+        assert item.find("m:generic-icon", ns).attrib["name"] == mappings[item.attrib["type"]]
+    assert not root.findall(".//m:glob", ns)
+    installed = list((data / "icons/hicolor/scalable/mimetypes").glob("*.svg"))
+    assert len(installed) == 3
+    for icon in installed:
+        assert ElementTree.fromstring(icon.read_text()).tag.endswith("svg")
+    assert any(args[0] == "update-mime-database" for args in calls)
+    desktop.uninstall()
+    assert not package.exists()
+    assert all(not icon.exists() for icon in installed)
+
+
+def test_no_defaults_only_installs_app_icons(environment):
+    executable, _, calls = environment
+    desktop.install(str(executable), replace_defaults=False)
+    data = desktop._root("XDG_DATA_HOME", ".local/share")
+    assert not (data / "mime/packages/xdg-google-docs.xml").exists()
+    assert not any(args[0] == "update-mime-database" for args in calls)
+    assert "text/csv;" in (data / "applications" / desktop.DESKTOP_ID).read_text()
+
+
+def test_icon_reinstall_and_csv_opt_in(environment):
+    executable, _, _ = environment
+    desktop.install(str(executable))
+    original = storage.read_json(storage.state_dir() / "desktop.json")["icon_files"]
+    desktop.install(str(executable))
+    assert storage.read_json(storage.state_dir() / "desktop.json")["icon_files"] == original
+    desktop.install(str(executable), include_csv=True)
+    package = desktop._root("XDG_DATA_HOME", ".local/share") / "mime/packages/xdg-google-docs.xml"
+    assert 'type="text/csv"' in package.read_text()
+    desktop.install(str(executable), replace_defaults=False)
+    assert 'type="text/csv"' in package.read_text()
+    desktop.uninstall()
+    assert not package.exists()
+
+
+def test_modified_icons_are_preserved(environment):
+    executable, _, _ = environment
+    desktop.install(str(executable))
+    tracked = storage.read_json(storage.state_dir() / "desktop.json")["icon_files"]
+    icon = Path(next(iter(tracked)))
+    original = icon.read_text()
+    icon.write_text("user customization")
+    with pytest.raises(FileExistsError, match="modified icon"):
+        desktop.install(str(executable))
+    with pytest.raises(RuntimeError, match="Icon file was modified"):
+        desktop.uninstall()
+    assert icon.read_text() == "user customization"
+    assert (storage.state_dir() / "desktop.json").exists()
+    icon.write_text(original)
+    desktop.uninstall()
+
+
+def test_untracked_icon_is_not_overwritten(environment):
+    executable, _, _ = environment
+    icon = (
+        desktop._root("XDG_DATA_HOME", ".local/share")
+        / "icons/hicolor/scalable/mimetypes/xdg-google-docs-document.svg"
+    )
+    icon.parent.mkdir(parents=True)
+    icon.write_text("preexisting")
+    with pytest.raises(FileExistsError, match="untracked"):
+        desktop.install(str(executable))
+    assert icon.read_text() == "preexisting"
+    desktop.uninstall()
+    assert icon.read_text() == "preexisting"
+
+
+def test_mime_refresh_failure_can_be_retried(environment, monkeypatch):
+    executable, _, _ = environment
+    original = desktop.subprocess.run
+
+    def fail(args, **kwargs):
+        if args[0] == "update-mime-database":
+            raise subprocess.CalledProcessError(1, args)
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(desktop.subprocess, "run", fail)
+    with pytest.raises(subprocess.CalledProcessError):
+        desktop.install(str(executable))
+    assert storage.read_json(storage.state_dir() / "desktop.json")["icon_files"]
+    monkeypatch.setattr(desktop.subprocess, "run", original)
+    desktop.install(str(executable))
+    desktop.uninstall()
+
+
+def test_missing_mime_tool_fails_before_installing(environment, monkeypatch):
+    executable, _, _ = environment
+    monkeypatch.setattr(desktop.shutil, "which", lambda _: None)
+    with pytest.raises(FileNotFoundError, match="shared-mime-info"):
+        desktop.install(str(executable))
+    assert not (storage.state_dir() / "desktop.json").exists()
+    assert not (desktop._root("XDG_DATA_HOME", ".local/share") / "applications").exists()
+
+
+def test_interrupted_icon_install_can_be_uninstalled(environment, monkeypatch):
+    executable, _, _ = environment
+    original = desktop._atomic_write
+
+    def fail(path, text, mode=0o644):
+        if path.suffix == ".svg":
+            raise OSError("interrupted before icon directories were created")
+        original(path, text, mode)
+
+    monkeypatch.setattr(desktop, "_atomic_write", fail)
+    with pytest.raises(OSError, match="interrupted"):
+        desktop.install(str(executable))
+    assert storage.read_json(storage.state_dir() / "desktop.json")["icon_files"]
+    desktop.uninstall()
+    assert not (storage.state_dir() / "desktop.json").exists()

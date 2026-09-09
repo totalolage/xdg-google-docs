@@ -4,8 +4,10 @@ import configparser
 import io
 import os
 import re
+import shutil
 import subprocess
 import warnings
+from importlib.resources import files
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -121,10 +123,89 @@ def _entry(executable, mimes):
     return (
         "[Desktop Entry]\nType=Application\nName=Google Docs\n"
         "Comment=Open office documents in Google Docs, Sheets and Slides\n"
+        "Icon=xdg-google-docs-document\n"
         f"Exec={command} open --desktop -- %F\n"
         "Terminal=false\nNoDisplay=true\nCategories=Office;\n"
         f"MimeType={';'.join(mimes)};\n"
     )
+
+
+def _refresh_icons(data, mime_changed):
+    if mime_changed and (data / "mime").is_dir():
+        subprocess.run(
+            ["update-mime-database", str(data / "mime")],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    theme = data / "icons/hicolor"
+    if not theme.is_dir():
+        return
+    os.utime(theme, None)
+    try:
+        subprocess.run(
+            ["gtk-update-icon-cache", "--force", "--ignore-theme-index", str(theme)],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except FileNotFoundError:
+        pass
+    except (OSError, subprocess.SubprocessError) as error:
+        warnings.warn(f"Could not refresh icon cache: {error}", stacklevel=2)
+
+
+def _install_icons(state, metadata, data, mimes):
+    assets = files("xdg_google_docs").joinpath("icons")
+    targets = {
+        str(data / "icons/hicolor/scalable/mimetypes" / asset.name): asset.read_text(
+            encoding="utf-8"
+        )
+        for asset in assets.iterdir()
+        if asset.name.endswith(".svg")
+    }
+    if mimes:
+        kinds = {
+            formats.DOC: "document",
+            formats.SHEET: "spreadsheet",
+            formats.SLIDES: "presentation",
+        }
+        types = {mime: kinds[target] for mime, target in formats.FORMATS.values()}
+        # Register the canonical RTF type only; shared-mime-info already provides its alias.
+        xml = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">',
+        ]
+        # Otherwise GTK can prefer the active theme's generic office icon over
+        # our specific icon in hicolor before searching the inherited theme.
+        for mime in sorted(set(mimes) & types.keys()):
+            xml.append(
+                f'  <mime-type type="{mime}"><icon name="xdg-google-docs-{types[mime]}"/>'
+                f'<generic-icon name="xdg-google-docs-{types[mime]}"/></mime-type>'
+            )
+        xml.append("</mime-info>\n")
+        targets[str(data / "mime/packages/xdg-google-docs.xml")] = "\n".join(xml)
+    tracked = state.setdefault("icon_files", {})
+    for name in targets:
+        path = Path(name)
+        if path.is_symlink() or (
+            path.exists()
+            and (name not in tracked or path.read_text(encoding="utf-8") not in tracked[name])
+        ):
+            raise FileExistsError(
+                f"Refusing to overwrite an untracked or modified icon file: {path}"
+            )
+    # Keep known versions to recover safely if an upgrade is interrupted mid-write.
+    for name, content in targets.items():
+        versions = tracked.setdefault(name, [])
+        if content not in versions:
+            versions.append(content)
+    storage.write_json(metadata, state)
+    for name, content in targets.items():
+        _atomic_write(Path(name), content)
+    _refresh_icons(data, bool(mimes))
 
 
 def install(executable: str, include_csv: bool = False, replace_defaults: bool = True):
@@ -136,7 +217,12 @@ def install(executable: str, include_csv: bool = False, replace_defaults: bool =
     mimes = list(formats.MIME_TYPES)
     if include_csv:
         mimes.append("text/csv")
-    entry = _entry(executable, mimes)
+    # Advertise every supported format, independently of which defaults we replace.
+    entry = _entry(executable, sorted(set(mimes) | {"text/csv"}))
+    if replace_defaults and not shutil.which("update-mime-database"):
+        raise FileNotFoundError(
+            "Install shared-mime-info (update-mime-database) to register document icons"
+        )
     applications = _root("XDG_DATA_HOME", ".local/share") / "applications"
     path = applications / DESKTOP_ID
     with storage.locked():
@@ -164,6 +250,9 @@ def install(executable: str, include_csv: bool = False, replace_defaults: bool =
         storage.write_json(metadata, state)
         _atomic_write(path, entry)
         _update_database(applications)
+        _install_icons(
+            state, metadata, applications.parent, list(state["mimes"]) if replace_defaults else []
+        )
         if replace_defaults:
             _root("XDG_CONFIG_HOME", ".config").mkdir(parents=True, exist_ok=True)
             for mime in mimes:
@@ -244,6 +333,19 @@ def uninstall():
             del state["mimes"][mime]
             storage.write_json(metadata, state)
         path = Path(state["entry_path"])
+        tracked = state.get("icon_files", {})
+        for name, versions in tracked.items():
+            icon = Path(name)
+            if icon.is_symlink() or (
+                icon.exists() and icon.read_text(encoding="utf-8") not in versions
+            ):
+                raise RuntimeError(
+                    f"Icon file was modified; leaving it and metadata intact: {icon}"
+                )
+        for name in tracked:
+            Path(name).unlink(missing_ok=True)
+        if tracked:
+            _refresh_icons(path.parent.parent, any(name.endswith(".xml") for name in tracked))
         if path.exists():
             if path.read_text(encoding="utf-8") != state["entry"]:
                 raise RuntimeError(

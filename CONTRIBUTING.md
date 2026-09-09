@@ -27,9 +27,21 @@ CI installs `.[dev]` and runs these checks on Python 3.11, 3.13, and 3.14. Tests
 - Never commit client JSON, tokens, document contents, private Drive URLs, or copied user state. Use synthetic fixtures and redact issue reports.
 - Add focused regression tests for changed behavior. Credit ideas and respect upstream licenses if introducing third-party material; the existing implementation was written independently, not copied from the projects in [research notes](docs/research.md).
 
+## Releases
+
+Every push to `main` (including a merged PR) runs the full Python-version CI matrix. After it succeeds, a separate job builds and checks a wheel and source archive, generates `SHA256SUMS`, and retains the distributions as a GitHub Actions artifact for 30 days. Pull requests and other branches cannot publish releases.
+
+Publishing is **version-gated**: if `project.version` in `pyproject.toml` has no published release yet, the job creates `v<version>` at the exact tested commit and publishes a GitHub release with generated notes and all three assets. The initial release is `v0.1.0`. To publish another release, include a version bump in a PR, for example `0.1.1` for a fix or `0.2.0` for a feature, and merge it. Merges without a version bump still build artifacts but do not alter the published release. Only stable `MAJOR.MINOR.PATCH` versions are supported; pre-1.0 versions are not automatically marked as GitHub prereleases. Nothing is published to PyPI.
+
+The publishing job has `contents: write` permission; test and build jobs remain read-only. It downloads its own run's validated distributions by artifact ID. Publishing uses the built-in `GITHUB_TOKEN`, so no personal access token or Google credentials are needed. The checkout does not persist Git credentials in the build or release jobs. Publishing jobs are serialized; GitHub can replace an older pending publisher if several runs are queued, so allow a version's release to finish before merging another version bump. Build and artifact-retention jobs are not serialized and are unaffected by this publishing queue.
+
+Published versions are never overwritten by automation. Assets are uploaded to a draft before publication. For a transient failure, rerun the failed workflow at the **same commit** to resume its draft or tag; a draft or tag associated with a different commit is rejected rather than moved. A new version older than an existing published release is rejected. Use the CI workflow's manual dispatch on `main` to retry when it still points at the intended release commit.
+
+Before merging release changes, run the normal checks and `python .github/scripts/release.py` after `python -m build` to generate local checksums without contacting GitHub. Release logic is covered by mocked tests. Review generated release notes for accuracy and avoid including private data in commit or PR titles.
+
 ## Manual Validation
 
-Live authenticated testing awaits user credentials and consent; it is not part of credential-free CI and is not currently claimed as completed. If you opt in, use disposable non-sensitive files and an account/project you control. Follow the [README OAuth setup](README.md#authorize-your-account), and record Python version, desktop environment, browser, formats, and observed results without publishing secrets.
+The maintainer has confirmed a successful authenticated upload and repeat-open cycle on the target Linux machine. This does not establish conversion fidelity across all formats, cross-machine reuse, or completion of every check below. Authenticated tests remain outside credential-free CI. If you opt in, use disposable non-sensitive files and an account/project you control. Follow the [README OAuth setup](README.md#authorize-your-account), and record Python version, desktop environment, browser, formats, and observed results without publishing secrets.
 
 1. Authenticate with a downloaded Desktop OAuth client; verify the account using `status --check`. Check `--no-browser` on the same machine and confirm expired/revoked credentials produce a useful error.
 2. Open representative documents in default conversion mode and with `--keep-office`. Inspect fidelity, not just HTTP success. Confirm `--print-url` suppresses browser launching but still performs the upload/reuse operation.

@@ -21,6 +21,8 @@ xdg-google-docs --help
 
 Keep the repository and virtual environment at a stable location: desktop installation records the absolute executable path. No root privileges are needed. Activate the environment again in new terminals to use these commands.
 
+On desktops using the generic `xdg-open` fallback (including some window-manager sessions), use an installation path without spaces or shell-special characters. That upstream launcher does not correctly parse quoted executable paths; standards-compliant launchers such as GIO do.
+
 ## Authorize Your Account
 
 There is no bundled OAuth client. Use your own Google Cloud project:

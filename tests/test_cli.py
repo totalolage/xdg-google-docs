@@ -1,4 +1,5 @@
 import hashlib
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -144,6 +145,41 @@ def test_desktop_errors_are_sanitized_and_persisted(offline, capsys, error, expe
     assert "secret" not in message
     assert "secret" not in capsys.readouterr().err
     notify.assert_any_call(message)
+
+
+@pytest.mark.parametrize(
+    "field,reason,disabled",
+    [
+        ("errors", "accessNotConfigured", True),
+        ("details", "SERVICE_DISABLED", True),
+        ("errors", "insufficientPermissions", False),
+        ("errors", "secret-unknown-reason", False),
+    ],
+)
+def test_api_disabled_error_is_actionable_without_exposing_response(
+    offline, capsys, field, reason, disabled
+):
+    content = json.dumps(
+        {
+            "error": {
+                "message": "secret server message",
+                field: [{"reason": reason, "metadata": {"consumer": "secret-project"}}],
+            }
+        }
+    ).encode()
+    offline[0].side_effect = HttpError(
+        httplib2.Response({"status": "403"}), content, uri="https://secret.test"
+    )
+    with patch.object(cli, "notify"):
+        assert cli.main(["open", "--desktop", "a.docx"]) == 1
+    message = storage.read_json(storage.state_dir() / "last-error.json")["message"]
+    assert ("Enable Google Drive API" in message) is disabled
+    if disabled:
+        assert "same Google Cloud project" in message
+        assert "status --check" in message
+    assert "secret" not in message
+    assert "secret" not in capsys.readouterr().err
+    offline[1].assert_not_called()
 
 
 @pytest.mark.parametrize("created", [True, False])

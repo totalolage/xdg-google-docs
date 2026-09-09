@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+import json
 import shutil
 import subprocess
 import sys
@@ -176,6 +177,29 @@ def report(error, desktop_mode):
     # HttpError's string can include a request URI; never persist that or OAuth errors.
     if isinstance(error, HttpError):
         message = f"Google Drive request failed (HTTP {error.resp.status}). Check API enablement, permissions, quota and network; retry."
+        try:
+            payload = json.loads(error.content)
+        except (ValueError, TypeError):
+            payload = {}
+        detail = payload.get("error") if isinstance(payload, dict) else None
+        reasons = set()
+        if isinstance(detail, dict):
+            for field in ("errors", "details"):
+                entries = detail.get(field)
+                if isinstance(entries, list):
+                    reasons.update(
+                        item["reason"]
+                        for item in entries
+                        if isinstance(item, dict) and isinstance(item.get("reason"), str)
+                    )
+        if error.resp.status == 403 and reasons & {"accessNotConfigured", "SERVICE_DISABLED"}:
+            message = (
+                "Google Drive API is disabled or not configured for your OAuth client's project "
+                "(HTTP 403). Enable Google Drive API in that same Google Cloud project: "
+                "https://console.cloud.google.com/apis/library/drive.googleapis.com . "
+                "Wait a few minutes, then run xdg-google-docs status --check and retry. "
+                "You do not normally need to authorize again."
+            )
     elif isinstance(error, (OSError, ValueError, subprocess.SubprocessError)):
         message = str(error)
     else:

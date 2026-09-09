@@ -41,23 +41,28 @@ The app opens document URLs in your configured browser. Your browser, extensions
 
 ## Storage and Security
 
-By default, the app stores OAuth client configuration, tokens, and settings in `~/.config/xdg-google-docs/`, and the document index, desktop-association recovery information, lock file, and optional latest error in `~/.local/state/xdg-google-docs/`. XDG environment settings can change these locations. Document URLs and status or error messages can also appear in terminal output or desktop notifications.
+Version 0.2.0 stores OAuth client configuration and access/refresh tokens together in one system Secret Service keyring entry. It explicitly uses `keyring.backends.SecretService.Keyring`, with service `xdg-google-docs` and account/profile key `oauth-SHA256(resolved app config directory)`. Changing `XDG_CONFIG_HOME` to a different resolved configuration directory selects a different credential entry.
 
-App configuration and state directories use owner-only permissions (`0700`), and newly written JSON files use owner-only read/write permissions (`0600`). **Tokens are stored in plaintext, not encrypted or placed in a system keyring.** These permissions do not prevent access by other processes running as you, system administrators, malware, or backups. Protect your computer and any downloaded OAuth client JSON accordingly.
+Settings and a credential-operation lock file remain in `~/.config/xdg-google-docs/`; the document cache/index, desktop-association backups/recovery information, operation lock file, and optional latest error remain in `~/.local/state/xdg-google-docs/`. Lock files do not contain credentials. XDG environment settings can change these locations. App configuration and state directories use owner-only permissions (`0700`), and newly written JSON files use owner-only read/write permissions (`0600`). These filesystem permissions do not prevent access by other processes running as you, system administrators, malware, or backups. Document URLs and status or error messages can also appear in terminal output or desktop notifications.
+
+A session D-Bus and Secret Service provider such as GNOME Keyring are required; GNOME Keyring is already present on the target machine. Python keyring dependencies are installed with the package; the app does not introduce its own daemon. The system may show a keyring-unlock dialog, but there is no custom app keyring GUI. An inaccessible or locked keyring that cannot be unlocked produces an error, with **no plaintext filesystem fallback**. Encryption and access control depend on OS keyring settings; an empty-password keyring may lack encryption. The keyring does not guarantee protection against same-user malware in an unlocked session.
+
+Users of v0.1.0 must upgrade to v0.2.0 for migration. On the next `status`, `auth`, `open`, or `logout`, legacy app-owned `client.json` and `token.json` in the app configuration directory migrate only after the whole bundle is stored in Secret Service and read back successfully for verification. Failed verification or inaccessible keyring storage leaves legacy files untouched. Differing existing keyring and legacy credentials stop migration without deletion. Migration does not itself require repeating Google authorization. The original user-provided downloaded client JSON remains untouched, and unlinking legacy files does not securely erase them or remove backup copies.
 
 A temporary snapshot contains document bytes during processing and is closed when processing finishes or the process exits. Temporary storage is not guaranteed to be encrypted, and closing or deleting files is not secure erasure. See [SECURITY.md](SECURITY.md) for additional security considerations.
 
 ## Retention, Control, and Deletion
 
-Local configuration and state remain until you remove them. Uploaded documents and their private application metadata remain in your Google Drive until you delete them; the app does not automatically delete cloud copies when you delete a local original, log out, or uninstall it.
+Keyring credentials, local configuration, and state remain until removed through the controls below, except for legacy files unlinked after verified migration. Uploaded documents and their private application metadata remain in your Google Drive until you delete them; the app does not automatically delete cloud copies when you delete a local original, log out, or uninstall it.
 
 You can control or remove this data as follows:
 
 1. Run `xdg-google-docs uninstall` to remove the app's desktop integration and restore defaults it still owns. Do this before deleting its installation or recovery metadata. This command keeps credentials and cloud documents.
-2. Run `xdg-google-docs logout` to delete the app's local token file. This does not revoke Google's authorization grant or remove token copies in backups.
+2. Run `xdg-google-docs logout` to remove access/refresh token data from the keyring bundle while preserving the OAuth client configuration. This does not revoke Google's authorization grant or remove token copies in backups.
 3. Revoke the app's access through [Google Account connections](https://myaccount.google.com/connections) to prevent further authorized access using that grant.
 4. Delete unwanted uploaded documents in Google Drive and manage its trash and retention settings. Google or your organization may retain data according to their policies.
-5. After uninstalling, remove the app's configuration and state directories, downloaded client JSON, and any relevant backups if you want to remove remaining local data. The maintainer cannot delete these files or your Drive documents on your behalf because they are not held on a maintainer-operated server.
+5. To delete the full credential bundle preserved by uninstall, remove the matching `xdg-google-docs` profile entry through the system Passwords and Keys (Seahorse) GUI. There is no app-specific GUI; deleting app directories alone does not remove the keyring entry.
+6. After uninstalling, remove the app's configuration and state directories, original downloaded client JSON, and any relevant backups if you want to remove remaining local data. Deletion is not a secure-erasure guarantee. The maintainer cannot delete these credentials, files, or your Drive documents on your behalf because they are not held on a maintainer-operated server.
 
 Using `--keep-office` disables native conversion, not uploading. Using `--print-url` suppresses browser launching, not uploading or remote lookup. Stop opening files with the app if you do not want it to transmit them to Google.
 

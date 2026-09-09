@@ -103,7 +103,11 @@ def test_lock_is_exclusive_private_and_closed_on_exit(raises):
     with patch.object(storage.fcntl, "flock", side_effect=flock):
         try:
             with storage.locked():
-                assert len(streams) == 1
+                assert len(streams) == 2
+                assert (
+                    stat.S_IMODE((storage.config_dir() / "credentials.lock").stat().st_mode)
+                    == 0o600
+                )
                 assert (
                     stat.S_IMODE((storage.state_dir() / "operation.lock").stat().st_mode) == 0o600
                 )
@@ -111,4 +115,4 @@ def test_lock_is_exclusive_private_and_closed_on_exit(raises):
                     raise RuntimeError("inside lock")
         except RuntimeError:
             assert raises
-    assert streams[0].closed
+    assert all(stream.closed for stream in streams)

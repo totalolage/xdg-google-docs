@@ -2,12 +2,59 @@
 
 import json
 import os
+import select
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+
+def test_credential_operations_share_lock_across_state_directories(environment):
+    first_code = (
+        "from xdg_google_docs.storage import locked\n"
+        "with locked():\n"
+        " print('holding', flush=True)\n"
+        " input()\n"
+    )
+    second_code = (
+        "from xdg_google_docs.storage import locked\n"
+        "with locked():\n"
+        " print('acquired', flush=True)\n"
+    )
+    other = {**environment, "XDG_STATE_HOME": environment["XDG_STATE_HOME"] + "-other"}
+    first = subprocess.Popen(
+        [sys.executable, "-c", first_code],
+        env=environment,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    second = None
+    try:
+        assert select.select([first.stdout], [], [], 10)[0]
+        assert first.stdout.readline().strip() == "holding"
+        second = subprocess.Popen(
+            [sys.executable, "-c", second_code],
+            env=other,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert not select.select([second.stdout], [], [], 0.3)[0]
+        first.communicate(input="\n", timeout=10)
+        output, error = second.communicate(timeout=10)
+        assert first.returncode == second.returncode == 0
+        assert output.strip() == "acquired"
+        assert not error
+    finally:
+        for process in (first, second):
+            if process is not None:
+                if process.poll() is None:
+                    process.kill()
+                process.communicate()
 
 
 @pytest.fixture
@@ -28,6 +75,7 @@ def environment(tmp_path):
     env["XDG_CURRENT_DESKTOP"] = "X-Generic"
     env["DE"] = "generic"
     env["DISPLAY"] = ":99"
+    env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={tmp_path}/no-session-bus"
     env["PATH"] = f"{Path(sys.executable).parent}:{env['PATH']}"
     return env
 
@@ -46,8 +94,17 @@ def run(environment, *args, check=True):
 def test_real_cli_missing_auth_is_actionable(environment):
     result = run(environment, "open", "--print-url", "missing.docx", check=False)
     assert result.returncode == 1
-    assert "Not authenticated" in result.stderr
-    assert "auth --client" in result.stderr
+    assert_keyring_unavailable(result.stderr)
+    assert "https://" not in result.stdout
+
+
+def assert_keyring_unavailable(message):
+    assert "system keyring" in message
+    assert "Secret Service" in message
+    assert "Start or unlock" in message
+    assert "Traceback" not in message
+    assert "accounts.google.com" not in message
+    assert "Google access verified" not in message
 
 
 @pytest.mark.skipif(
@@ -110,9 +167,9 @@ def test_real_desktop_install_uninstall_does_not_deadlock(environment):
             text=True,
             timeout=20,
         )
-        assert "Not authenticated" in launched.stderr
+        assert_keyring_unavailable(launched.stderr)
         error = Path(environment["XDG_STATE_HOME"]) / "xdg-google-docs/last-error.json"
-        assert "Not authenticated" in json.loads(error.read_text())["message"]
+        assert_keyring_unavailable(json.loads(error.read_text())["message"])
     metadata = Path(environment["XDG_STATE_HOME"]) / "xdg-google-docs/desktop.json"
     original = json.loads(metadata.read_text())
     run(environment, "install")

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xdg-google-docs"
-version = "0.1.0"
+version = "0.2.0"
 description = "Open local office documents in Google Docs, Sheets and Slides from Linux"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,6 +13,8 @@ authors = [{name = "Filip Kalny"}]
 dependencies = [
   "google-api-python-client>=2.160,<3",
   "google-auth-oauthlib>=1.2.2,<2",
+  "keyring>=25,<26",
+  "SecretStorage>=3.3,<4",
 ]
 
 [project.optional-dependencies]

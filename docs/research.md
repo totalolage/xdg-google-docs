@@ -31,7 +31,7 @@ The [custom properties guide](https://developers.google.com/workspace/drive/api/
 
 Identity is not a pathname or a comparison with current remote content. The same bytes under a new name reopen the old cloud title. Changed local bytes normally create another copy. Existing remote edits remain untouched. This avoids destructive overwrite but is not sync, version reconciliation, or whole-Drive deduplication.
 
-A single local process lock only coordinates clients sharing local state. Drive property search is not an atomic create-if-absent operation or a uniqueness constraint. Distributed callers, search-index lag, and ambiguous upload failures can create duplicates. Losing local state may be recoverable through properties, but recovery and exactly-once creation are not guaranteed.
+Local locks coordinate clients sharing a configuration or state directory. The configuration lock prevents credential refresh from racing with logout even when state directories differ. Drive property search is not an atomic create-if-absent operation or a uniqueness constraint. Distributed callers, search-index lag, and ambiguous upload failures can create duplicates. Losing local state may be recoverable through properties, but recovery and exactly-once creation are not guaranteed.
 
 ### Authentication And Privacy
 
@@ -39,7 +39,15 @@ Google's [OAuth for native apps](https://developers.google.com/identity/protocol
 
 The [OAuth expiration documentation](https://developers.google.com/identity/protocols/oauth2#expiration) describes the seven-day refresh-token lifetime for External apps in Testing when requesting scopes such as `drive.file`. Production status for personal use can remove that testing-specific limit where Google's policies permit, but does not eliminate revocation, other expiration causes, or verification requirements.
 
-Tokens are plaintext files written with mode `0600` inside an app directory with mode `0700`; there is no keyring. File contents, titles, and the derived identity are sent to Google Drive. Full local paths are not intentionally included in upload metadata. The app opens Drive's authenticated `webViewLink` and does not request public sharing. In contrast, [`rclone link`](https://rclone.org/commands/rclone_link/) is explicitly a public-link operation and is unsuitable as a privacy-preserving substitute.
+Version 0.2.0 explicitly uses `keyring.backends.SecretService.Keyring`, with no plaintext fallback. OAuth client configuration and access/refresh tokens are stored as one bundle in the system Secret Service entry for service `xdg-google-docs`, account/profile key `oauth-SHA256(resolved app config directory)`. Hashing the resolved configuration directory isolates profiles: changing `XDG_CONFIG_HOME` to a different resolved directory selects a different entry. Settings, document cache/index, errors, and desktop association backups remain filesystem data, with newly written JSON files using mode `0600` and app directories mode `0700`.
+
+A session D-Bus and Secret Service provider are required. GNOME Keyring is already the provider on the target machine; Python keyring dependencies are installed with the package, and no app daemon is introduced. The system may present an unlock dialog, but there is no custom app keyring GUI. An inaccessible or locked keyring that cannot be unlocked produces an error, not filesystem fallback storage. Encryption and access control depend on OS keyring settings: an empty-password keyring may lack encryption, and there is no guarantee against same-user malware in an unlocked session.
+
+Users of v0.1.0 must upgrade to v0.2.0 for migration. On the next `status`, `auth`, `open`, or `logout`, the app stores and reads back the whole bundle for verification before unlinking legacy app-owned `~/.config/xdg-google-docs/client.json` and `token.json` (or their XDG-configured equivalents). Failed verification or inaccessible keyring storage leaves legacy files untouched; differing existing keyring and legacy credentials stop migration without deletion. Migration itself does not require repeating Google authorization. The original user-provided downloaded client JSON remains untouched; unlinking legacy files is not secure erasure and does not remove backups.
+
+`logout` removes token data from the bundle while preserving client configuration and cloud data. `uninstall` preserves keyring credentials. Users can delete the full matching `xdg-google-docs` profile entry through the system Passwords and Keys (Seahorse) GUI; removing app directories alone does not remove it. Downloads, backups, and cloud documents require separate management.
+
+File contents, titles, and the derived identity are sent to Google Drive. Full local paths are not intentionally included in upload metadata. The app opens Drive's authenticated `webViewLink` and does not request public sharing. In contrast, [`rclone link`](https://rclone.org/commands/rclone_link/) is explicitly a public-link operation and is unsuitable as a privacy-preserving substitute.
 
 ## Validation Boundary
 

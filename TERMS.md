@@ -17,7 +17,7 @@ You are responsible for choosing which documents to open, which Google account t
 - Only upload material you have the right and permission to send to Google and to store in the authorized account.
 - Follow applicable law, confidentiality obligations, workplace or organization policies, and the terms governing your Google account.
 - Check the authorized account before uploading sensitive documents. The account used by the CLI can differ from the account currently active in your browser.
-- Protect your computer, OAuth client configuration, tokens, and backups. The app stores tokens locally in permission-restricted plaintext files, not an encrypted keyring.
+- Protect your computer, OAuth client configuration, tokens, and backups. Version 0.2.0 stores the client configuration and access/refresh tokens in one system Secret Service keyring entry, with no plaintext fallback. Encryption and access control depend on OS keyring settings; an empty-password keyring may lack encryption, and an unlocked session is not guaranteed protection against same-user malware. Settings, cache/index, errors, and desktop association backups remain on the filesystem; the original downloaded client JSON remains untouched.
 - Keep independent backups and verify important documents after uploading or converting them.
 - Do not use the app to obtain unauthorized access, circumvent service restrictions, or infringe the rights of others.
 
@@ -39,13 +39,17 @@ Google Drive, Google Docs, Google Sheets, Google Slides, OAuth authorization, an
 
 The maintainer cannot guarantee continued access to third-party services or control their changes, retention policies, or availability. Your browser, extensions, operating system, and backup tools are also outside the app's control.
 
+Credential operations require a session D-Bus and a Secret Service provider, such as the GNOME Keyring already present on the target machine. The package installs its Python keyring dependencies and introduces no app daemon. The system may show an unlock dialog; the app has no custom keyring GUI. An inaccessible or locked keyring that cannot be unlocked causes an error rather than a filesystem fallback.
+
 ## Privacy and Removal
 
 The [Privacy Policy](PRIVACY.md) describes data access, use, storage, sharing, retention, and deletion. The [security documentation](SECURITY.md) explains additional risks and safeguards.
 
-You may stop using the app at any time. Run `xdg-google-docs uninstall` before removing its installation or recovery metadata to remove its desktop integration and restore defaults it still owns. Run `xdg-google-docs logout` to delete its local token, and revoke the grant through [Google Account connections](https://myaccount.google.com/connections) if you want to withdraw Google authorization.
+Users of v0.1.0 must upgrade to v0.2.0 to migrate legacy app-owned `client.json` and `token.json`. The next `status`, `auth`, `open`, or `logout` stores and reads back the whole keyring bundle for verification before unlinking legacy files. Failed verification or inaccessible keyring storage leaves legacy files untouched; differing existing keyring and legacy credentials stop migration without deletion. Migration itself requires no repeat Google authorization and does not securely erase legacy files, original downloads, or backups. See the [README](README.md#local-data-and-removal) for profile isolation by resolved configuration directory.
 
-Uninstalling or logging out does not delete uploaded documents from Google Drive. You must manage cloud documents and their deletion through Google. Remaining local configuration, state, downloaded credentials, and backups must be removed separately if desired.
+You may stop using the app at any time. Run `xdg-google-docs uninstall` before removing its installation or recovery metadata to remove its desktop integration and restore defaults it still owns. Run `xdg-google-docs logout` to remove access/refresh token data from its keyring bundle while preserving the OAuth client configuration, and revoke the grant through [Google Account connections](https://myaccount.google.com/connections) if you want to withdraw Google authorization.
+
+Uninstall preserves keyring credentials. To delete the full credential entry, use the system Passwords and Keys (Seahorse) GUI to remove the matching `xdg-google-docs` profile entry; there is no app-specific GUI. Uninstalling or logging out does not delete uploaded documents from Google Drive. You must manage cloud documents and their deletion through Google. Remaining local configuration, state, original downloaded credentials, and backups must be removed separately if desired. Removing app directories does not remove keyring credentials, and deletion is not a secure-erasure guarantee.
 
 ## Availability and Changes
 

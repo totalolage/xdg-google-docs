@@ -43,4 +43,4 @@ Tokens are plaintext files written with mode `0600` inside an app directory with
 
 ## Validation Boundary
 
-Documentation review and offline tests do not establish live Google behavior. Authenticated testing awaits the user's Desktop OAuth credentials and consent. No live authorization success, conversion fidelity, cross-machine deduplication, or complete desktop/browser end-to-end result is claimed. Use the [manual checklist](../CONTRIBUTING.md#manual-validation) with disposable, non-sensitive documents and record the actual environment and results.
+Documentation review and offline tests do not establish live Google behavior. The maintainer subsequently confirmed successful authenticated upload and repeat-open behavior on the target Linux machine. Conversion fidelity across all formats and cross-machine deduplication remain unverified. Use the [manual checklist](../CONTRIBUTING.md#manual-validation) with disposable, non-sensitive documents and record the actual environment and results.

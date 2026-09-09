@@ -26,6 +26,12 @@ Keep the repository and virtual environment at a stable location: desktop instal
 
 On desktops using the generic `xdg-open` fallback (including some window-manager sessions), use an installation path without spaces or shell-special characters. That upstream launcher does not correctly parse quoted executable paths; standards-compliant launchers such as GIO do.
 
+## Releases And Upgrades
+
+For versioned downloads, use [GitHub Releases](https://github.com/totalolage/xdg-google-docs/releases). Each release includes a wheel, source archive, and `SHA256SUMS`. Releases are published automatically after a new package version merges to `main` and CI passes. Merges retaining an already released version produce CI build artifacts, not a replacement release.
+
+To upgrade an existing virtual-environment installation, download the new wheel and checksum file, verify the wheel against its entry in `SHA256SUMS`, then run the environment's `python -m pip install --upgrade /path/to/downloaded.whl` followed by `xdg-google-docs install` to refresh desktop assets. Reuse `--include-csv` or `--no-defaults` if that is your chosen installation mode. Configuration and Google credentials remain outside the installed package.
+
 ## Authorize Your Account
 
 There is no bundled OAuth client. Use your own Google Cloud project:
@@ -145,4 +151,4 @@ xdg-google-docs logout
 
 This is an online cloud-copy opener, not a filesystem, backup tool, sync client, or fidelity-preserving converter. Network access, Drive quota, Google's import limits, account policy, and browser support apply. The app does not create public sharing permissions; an editor URL is not a public-share link.
 
-Live authenticated end-to-end testing awaits user-provided credentials and consent. Successful real-account authorization, conversion fidelity, editor opening, and cross-machine reuse are **not claimed as verified**. Offline tests and CI cannot establish those properties. See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and a manual validation checklist, and [research notes](docs/research.md) for alternatives and design sources.
+The maintainer has confirmed successful authenticated upload and repeat-open behavior on the target Linux machine. Conversion fidelity across all formats and cross-machine reuse remain unverified; offline tests and CI cannot establish those properties. See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and a manual validation checklist, and [research notes](docs/research.md) for alternatives and design sources.

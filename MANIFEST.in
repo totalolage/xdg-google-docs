@@ -1,2 +1,3 @@
 include CONTRIBUTING.md SECURITY.md PRIVACY.md TERMS.md
 recursive-include docs *.md
+recursive-include .github/scripts *.py

@@ -1,2 +1,2 @@
-include CONTRIBUTING.md SECURITY.md
+include CONTRIBUTING.md SECURITY.md PRIVACY.md
 recursive-include docs *.md
